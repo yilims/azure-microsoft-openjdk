@@ -72,6 +72,7 @@ func (j JDK) Contribute(layer libcnb.Layer) (libcnb.Layer, error) {
 
 		layer.BuildEnvironment.Override("JAVA_HOME", layer.Path)
 		layer.BuildEnvironment.Override("JDK_HOME", layer.Path)
+		layer.BuildEnvironment.Override("PATH", "$PATH:"+layer.Path+"/bin")
 
 		var keyStorePath string
 		if IsBeforeJava9(j.LayerContributor.Dependency.Version) {

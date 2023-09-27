@@ -18,9 +18,9 @@ package libjvm
 
 import (
 	"fmt"
+
 	"github.com/mattn/go-shellwords"
 	"github.com/paketo-buildpacks/libpak/effect"
-	"strings"
 
 	"github.com/buildpacks/libcnb"
 	"github.com/heroku/color"
@@ -76,18 +76,13 @@ type NativeImage struct {
 }
 
 func (b Build) Build(context libcnb.BuildContext) (libcnb.BuildResult, error) {
-	var jdkRequired, jreRequired, jreMissing, jreSkipped, jLinkEnabled, nativeImage bool
+	var jdkRequired, jreRequired, nativeImage bool
 
 	pr := libpak.PlanEntryResolver{Plan: context.Plan}
 
 	_, jdkRequired, err := pr.Resolve("jdk")
 	if err != nil {
 		return libcnb.BuildResult{}, fmt.Errorf("unable to resolve jdk plan entry\n%w", err)
-	}
-
-	jrePlanEntry, jreRequired, err := pr.Resolve("jre")
-	if err != nil {
-		return libcnb.BuildResult{}, fmt.Errorf("unable to resolve jre plan entry\n%w", err)
 	}
 
 	_, nativeImage, err = pr.Resolve("native-image-builder")
@@ -127,77 +122,10 @@ func (b Build) Build(context libcnb.BuildContext) (libcnb.BuildResult, error) {
 		return libcnb.BuildResult{}, fmt.Errorf("unable to find dependency\n%w", err)
 	}
 
-	jreMissing = false
-	depJRE, err := dr.Resolve("jre", v)
-	if libpak.IsNoValidDependencies(err) {
-		jreMissing = true
-	}
-
-	if t, _ := cr.Resolve("BP_JVM_TYPE"); strings.ToLower(t) == "jdk" {
-		jreSkipped = true
-	}
-
-	if jl := cr.ResolveBool("BP_JVM_JLINK_ENABLED"); jl {
-		jLinkEnabled = true
-	}
-
-	if nativeImage {
-		depNative, err := dr.Resolve("native-image-svm", v)
-		if err != nil {
-			return libcnb.BuildResult{}, fmt.Errorf("unable to find dependency\n%w", err)
-		}
-		if b.Native.BundledWithJDK {
-			if err = b.contributeJDK(depNative); err != nil {
-				return libcnb.BuildResult{}, fmt.Errorf("unable to contribute Native Image bundled with JDK\n%w", err)
-			}
-			return b.Result, nil
-		}
-		if err = b.contributeNIK(depJDK, depNative); err != nil {
-			return libcnb.BuildResult{}, fmt.Errorf("unable to contribute Native Image\n%w", err)
-		}
-		return b.Result, nil
-	}
-
-	// jLink
-	if jLinkEnabled {
-		if IsBeforeJava9(v) {
-			return libcnb.BuildResult{}, fmt.Errorf("unable to build, jlink is compatible with Java 9+ only\n")
-		}
-		if err = b.contributeJDK(depJDK); err != nil {
-			return libcnb.BuildResult{}, fmt.Errorf("unable to contribute JDK for Jlink\n%w", err)
-		}
-		if err = b.contributeJLink(cr, jrePlanEntry.Metadata, context.Application.Path, depJDK); err != nil {
-			return libcnb.BuildResult{}, fmt.Errorf("unable to contribute Jlink\n%w", err)
-		}
-		b.contributeHelpers(context, depJDK)
-		return b.Result, nil
-	}
-
-	// use JDK as JRE
-	if jreRequired && (jreSkipped || jreMissing) {
-		b.warnIfJreNotUsed(jreMissing, jreSkipped)
-		if err = b.contributeJDKAsJRE(depJDK, jrePlanEntry, context); err != nil {
-			return libcnb.BuildResult{}, fmt.Errorf("unable to contribute JDK as JRE\n%w", err)
-		}
-		b.contributeHelpers(context, depJDK)
-		return b.Result, nil
-	}
-
 	// contribute a JDK
 	if jdkRequired {
 		if err = b.contributeJDK(depJDK); err != nil {
 			return libcnb.BuildResult{}, fmt.Errorf("unable to contribute JDK \n%w", err)
-		}
-	}
-
-	// contribute a JRE
-	if jreRequired {
-		dt := JREType
-		if err = b.contributeJRE(depJRE, context.Application.Path, dt, jrePlanEntry.Metadata); err != nil {
-			return libcnb.BuildResult{}, fmt.Errorf("unable to contribute JDK \n%w", err)
-		}
-		if IsLaunchContribution(jrePlanEntry.Metadata) {
-			b.contributeHelpers(context, depJRE)
 		}
 	}
 
